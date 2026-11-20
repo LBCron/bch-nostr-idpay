@@ -1,0 +1,104 @@
+pragma cashscript ^0.14.0;
+
+/**
+ * CashLink DID — IdentityAnchor Covenant (Bitcoin Cash Mainnet / CashTokens)
+ *
+ * Locks a mutable CashTokens Identity NFT (`bitcoincash:z...`) whose 40-byte
+ * `nftCommitment` stores:
+ *   - Bytes [0..32]  (`bytes32 bindingHash`): `sha256(nostrPubkey32 || ownerPkh20)`
+ *   - Bytes [32..40] (`bytes8 sequence`):     Monotonically increasing int64 LE counter
+ *
+ * Enforces three self-sovereign DID lifecycle transitions directly in the BCH VM:
+ *   1. `rotateIdentity`: Authorized owner rotates their Nostr pubkey and/or BCH
+ *      owner keypair, incrementing sequence by +1 and preserving the mutable NFT
+ *      inside the same covenant lockingBytecode.
+ *   2. `recoverIdentity`: Designated hardware/social guardian (`guardianPkh`)
+ *      recovers a lost or compromised identity to a fresh `(nostrPubkey, ownerPkh)`
+ *      pair while incrementing sequence by +1.
+ *   3. `revokeIdentity`: Authorized owner permanently burns the Identity NFT
+ *      (`tx.outputs[0].tokenCategory == 0x`) and emits an on-chain `"BLZR"`
+ *      (`0x424c5a52`) revocation marker in `OP_RETURN`.
+ */
+contract IdentityAnchor(bytes20 guardianPkh) {
+    // 1. Authorized Key Rotation (rotates BCH key, Nostr key, or both)
+    function rotateIdentity(
+        pubkey currentOwnerPk,
+        sig currentOwnerSig,
+        bytes32 currentNostrPubkey,
+        bytes32 nextNostrPubkey,
+        bytes20 nextOwnerPkh
+    ) {
+        require(this.activeInputIndex == 0);
+        require(checkSig(currentOwnerSig, currentOwnerPk));
+
+        bytes commitment = tx.inputs[0].nftCommitment;
+        require(commitment.length == 40);
+        bytes prevBindingPart, bytes prevSeqPart = commitment.split(32);
+
+        bytes20 currentOwnerPkh = hash160(currentOwnerPk);
+        require(prevBindingPart == sha256(currentNostrPubkey + currentOwnerPkh));
+
+        int nextSeq = int(prevSeqPart) + 1;
+        bytes32 nextBindingHash = sha256(nextNostrPubkey + nextOwnerPkh);
+        bytes nextCommitment = nextBindingHash + toPaddedBytes(nextSeq, 8);
+
+        require(tx.inputs[0].tokenCategory != 0x);
+        require(tx.outputs[0].lockingBytecode == tx.inputs[0].lockingBytecode);
+        require(tx.outputs[0].tokenCategory == tx.inputs[0].tokenCategory);
+        require(tx.outputs[0].nftCommitment == nextCommitment);
+        require(tx.outputs[0].value >= 1000);
+    }
+
+    // 2. Guardian Hardware / Social Recovery
+    function recoverIdentity(
+        pubkey guardianPk,
+        sig guardianSig,
+        bytes32 recoveredNostrPubkey,
+        bytes20 recoveredOwnerPkh
+    ) {
+        require(this.activeInputIndex == 0);
+        require(hash160(guardianPk) == guardianPkh);
+        require(checkSig(guardianSig, guardianPk));
+
+        bytes commitment = tx.inputs[0].nftCommitment;
+        require(commitment.length == 40);
+        bytes prevSeqPart = commitment.split(32)[1];
+
+        int nextSeq = int(prevSeqPart) + 1;
+        bytes32 recoveredBindingHash = sha256(recoveredNostrPubkey + recoveredOwnerPkh);
+        bytes nextCommitment = recoveredBindingHash + toPaddedBytes(nextSeq, 8);
+
+        require(tx.inputs[0].tokenCategory != 0x);
+        require(tx.outputs[0].lockingBytecode == tx.inputs[0].lockingBytecode);
+        require(tx.outputs[0].tokenCategory == tx.inputs[0].tokenCategory);
+        require(tx.outputs[0].nftCommitment == nextCommitment);
+        require(tx.outputs[0].value >= 1000);
+    }
+
+    // 3. Permanent Self-Sovereign Revocation (burns mutable Identity NFT + OP_RETURN)
+    function revokeIdentity(
+        pubkey currentOwnerPk,
+        sig currentOwnerSig,
+        bytes32 currentNostrPubkey
+    ) {
+        require(this.activeInputIndex == 0);
+        require(checkSig(currentOwnerSig, currentOwnerPk));
+
+        bytes commitment = tx.inputs[0].nftCommitment;
+        require(commitment.length == 40);
+        bytes prevBindingPart = commitment.split(32)[0];
+
+        bytes20 currentOwnerPkh = hash160(currentOwnerPk);
+        require(prevBindingPart == sha256(currentNostrPubkey + currentOwnerPkh));
+
+        // Burn NFT on output 0 (and forbid minting/moving NFT to any secondary output if present)
+        require(tx.outputs[0].tokenCategory == 0x);
+        require(tx.outputs[0].value == 0);
+        bytes expectedOpReturn = 0x6a04424c5a5220 + prevBindingPart;
+        require(tx.outputs[0].lockingBytecode == expectedOpReturn);
+        if (tx.outputs.length > 1) {
+            require(tx.outputs[1].tokenCategory == 0x);
+        }
+        require(tx.outputs.length <= 2);
+    }
+}

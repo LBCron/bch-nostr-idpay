@@ -1,0 +1,82 @@
+{
+  "contractName": "IdentityAnchor",
+  "constructorInputs": [
+    { "name": "guardianPkh", "type": "bytes20" }
+  ],
+  "abi": [
+    {
+      "name": "rotateIdentity",
+      "inputs": [
+        { "name": "currentOwnerPk", "type": "pubkey" },
+        { "name": "currentOwnerSig", "type": "sig" },
+        { "name": "currentNostrPubkey", "type": "bytes32" },
+        { "name": "nextNostrPubkey", "type": "bytes32" },
+        { "name": "nextOwnerPkh", "type": "bytes20" }
+      ]
+    },
+    {
+      "name": "recoverIdentity",
+      "inputs": [
+        { "name": "guardianPk", "type": "pubkey" },
+        { "name": "guardianSig", "type": "sig" },
+        { "name": "recoveredNostrPubkey", "type": "bytes32" },
+        { "name": "recoveredOwnerPkh", "type": "bytes20" }
+      ]
+    },
+    {
+      "name": "revokeIdentity",
+      "inputs": [
+        { "name": "currentOwnerPk", "type": "pubkey" },
+        { "name": "currentOwnerSig", "type": "sig" },
+        { "name": "currentNostrPubkey", "type": "bytes32" }
+      ]
+    }
+  ],
+  "bytecode": "OP_OVER OP_0 OP_NUMEQUAL OP_IF OP_4 OP_ROLL OP_SIZE 20 OP_EQUALVERIFY OP_5 OP_ROLL OP_SIZE 20 OP_EQUALVERIFY OP_6 OP_ROLL OP_SIZE 14 OP_EQUALVERIFY OP_INPUTINDEX OP_0 OP_NUMEQUALVERIFY OP_6 OP_ROLL OP_6 OP_PICK OP_CHECKSIGVERIFY OP_0 OP_UTXOTOKENCOMMITMENT OP_SIZE 28 OP_NUMEQUALVERIFY 20 OP_SPLIT OP_7 OP_ROLL OP_HASH160 OP_ROT OP_5 OP_ROLL OP_ROT OP_CAT OP_SHA256 OP_EQUALVERIFY OP_BIN2NUM OP_1ADD OP_ROT OP_ROT OP_CAT OP_SHA256 OP_SWAP OP_8 OP_NUM2BIN OP_CAT OP_0 OP_UTXOTOKENCATEGORY OP_0 OP_EQUAL OP_NOT OP_VERIFY OP_0 OP_OUTPUTBYTECODE OP_0 OP_UTXOBYTECODE OP_EQUALVERIFY OP_0 OP_OUTPUTTOKENCATEGORY OP_0 OP_UTXOTOKENCATEGORY OP_EQUALVERIFY OP_0 OP_OUTPUTTOKENCOMMITMENT OP_EQUALVERIFY OP_0 OP_OUTPUTVALUE e803 OP_GREATERTHANOREQUAL OP_NIP OP_NIP OP_ELSE OP_OVER OP_1 OP_NUMEQUAL OP_IF OP_4 OP_ROLL OP_SIZE 20 OP_EQUALVERIFY OP_5 OP_ROLL OP_SIZE 14 OP_EQUALVERIFY OP_INPUTINDEX OP_0 OP_NUMEQUALVERIFY OP_4 OP_PICK OP_HASH160 OP_3 OP_ROLL OP_EQUALVERIFY OP_4 OP_ROLL OP_4 OP_ROLL OP_CHECKSIGVERIFY OP_0 OP_UTXOTOKENCOMMITMENT OP_SIZE 28 OP_NUMEQUALVERIFY 20 OP_SPLIT OP_NIP OP_BIN2NUM OP_1ADD OP_ROT OP_ROT OP_CAT OP_SHA256 OP_SWAP OP_8 OP_NUM2BIN OP_CAT OP_0 OP_UTXOTOKENCATEGORY OP_0 OP_EQUAL OP_NOT OP_VERIFY OP_0 OP_OUTPUTBYTECODE OP_0 OP_UTXOBYTECODE OP_EQUALVERIFY OP_0 OP_OUTPUTTOKENCATEGORY OP_0 OP_UTXOTOKENCATEGORY OP_EQUALVERIFY OP_0 OP_OUTPUTTOKENCOMMITMENT OP_EQUALVERIFY OP_0 OP_OUTPUTVALUE e803 OP_GREATERTHANOREQUAL OP_NIP OP_ELSE OP_SWAP OP_2 OP_NUMEQUALVERIFY OP_3 OP_ROLL OP_SIZE 20 OP_EQUALVERIFY OP_INPUTINDEX OP_0 OP_NUMEQUALVERIFY OP_3 OP_ROLL OP_3 OP_PICK OP_CHECKSIGVERIFY OP_0 OP_UTXOTOKENCOMMITMENT OP_SIZE 28 OP_NUMEQUALVERIFY 20 OP_SPLIT OP_DROP OP_3 OP_ROLL OP_HASH160 OP_OVER OP_3 OP_ROLL OP_ROT OP_CAT OP_SHA256 OP_EQUALVERIFY OP_0 OP_OUTPUTTOKENCATEGORY OP_0 OP_EQUALVERIFY OP_0 OP_OUTPUTVALUE OP_0 OP_NUMEQUALVERIFY 6a04424c5a5220 OP_SWAP OP_CAT OP_0 OP_OUTPUTBYTECODE OP_EQUALVERIFY OP_TXOUTPUTCOUNT OP_1 OP_GREATERTHAN OP_IF OP_1 OP_OUTPUTTOKENCATEGORY OP_0 OP_EQUALVERIFY OP_ENDIF OP_TXOUTPUTCOUNT OP_2 OP_LESSTHANOREQUAL OP_NIP OP_ENDIF OP_ENDIF",
+  "source": "pragma cashscript ^0.14.0;\n\n/**\n * CashLink DID — IdentityAnchor Covenant (Bitcoin Cash Mainnet / CashTokens)\n *\n * Locks a mutable CashTokens Identity NFT (`bitcoincash:z...`) whose 40-byte\n * `nftCommitment` stores:\n *   - Bytes [0..32]  (`bytes32 bindingHash`): `sha256(nostrPubkey32 || ownerPkh20)`\n *   - Bytes [32..40] (`bytes8 sequence`):     Monotonically increasing int64 LE counter\n *\n * Enforces three self-sovereign DID lifecycle transitions directly in the BCH VM:\n *   1. `rotateIdentity`: Authorized owner rotates their Nostr pubkey and/or BCH\n *      owner keypair, incrementing sequence by +1 and preserving the mutable NFT\n *      inside the same covenant lockingBytecode.\n *   2. `recoverIdentity`: Designated hardware/social guardian (`guardianPkh`)\n *      recovers a lost or compromised identity to a fresh `(nostrPubkey, ownerPkh)`\n *      pair while incrementing sequence by +1.\n *   3. `revokeIdentity`: Authorized owner permanently burns the Identity NFT\n *      (`tx.outputs[0].tokenCategory == 0x`) and emits an on-chain `\"BLZR\"`\n *      (`0x424c5a52`) revocation marker in `OP_RETURN`.\n */\ncontract IdentityAnchor(bytes20 guardianPkh) {\n    // 1. Authorized Key Rotation (rotates BCH key, Nostr key, or both)\n    function rotateIdentity(\n        pubkey currentOwnerPk,\n        sig currentOwnerSig,\n        bytes32 currentNostrPubkey,\n        bytes32 nextNostrPubkey,\n        bytes20 nextOwnerPkh\n    ) {\n        require(this.activeInputIndex == 0);\n        require(checkSig(currentOwnerSig, currentOwnerPk));\n\n        bytes commitment = tx.inputs[0].nftCommitment;\n        require(commitment.length == 40);\n        bytes prevBindingPart, bytes prevSeqPart = commitment.split(32);\n\n        bytes20 currentOwnerPkh = hash160(currentOwnerPk);\n        require(prevBindingPart == sha256(currentNostrPubkey + currentOwnerPkh));\n\n        int nextSeq = int(prevSeqPart) + 1;\n        bytes32 nextBindingHash = sha256(nextNostrPubkey + nextOwnerPkh);\n        bytes nextCommitment = nextBindingHash + toPaddedBytes(nextSeq, 8);\n\n        require(tx.inputs[0].tokenCategory != 0x);\n        require(tx.outputs[0].lockingBytecode == tx.inputs[0].lockingBytecode);\n        require(tx.outputs[0].tokenCategory == tx.inputs[0].tokenCategory);\n        require(tx.outputs[0].nftCommitment == nextCommitment);\n        require(tx.outputs[0].value >= 1000);\n    }\n\n    // 2. Guardian Hardware / Social Recovery\n    function recoverIdentity(\n        pubkey guardianPk,\n        sig guardianSig,\n        bytes32 recoveredNostrPubkey,\n        bytes20 recoveredOwnerPkh\n    ) {\n        require(this.activeInputIndex == 0);\n        require(hash160(guardianPk) == guardianPkh);\n        require(checkSig(guardianSig, guardianPk));\n\n        bytes commitment = tx.inputs[0].nftCommitment;\n        require(commitment.length == 40);\n        bytes prevSeqPart = commitment.split(32)[1];\n\n        int nextSeq = int(prevSeqPart) + 1;\n        bytes32 recoveredBindingHash = sha256(recoveredNostrPubkey + recoveredOwnerPkh);\n        bytes nextCommitment = recoveredBindingHash + toPaddedBytes(nextSeq, 8);\n\n        require(tx.inputs[0].tokenCategory != 0x);\n        require(tx.outputs[0].lockingBytecode == tx.inputs[0].lockingBytecode);\n        require(tx.outputs[0].tokenCategory == tx.inputs[0].tokenCategory);\n        require(tx.outputs[0].nftCommitment == nextCommitment);\n        require(tx.outputs[0].value >= 1000);\n    }\n\n    // 3. Permanent Self-Sovereign Revocation (burns mutable Identity NFT + OP_RETURN)\n    function revokeIdentity(\n        pubkey currentOwnerPk,\n        sig currentOwnerSig,\n        bytes32 currentNostrPubkey\n    ) {\n        require(this.activeInputIndex == 0);\n        require(checkSig(currentOwnerSig, currentOwnerPk));\n\n        bytes commitment = tx.inputs[0].nftCommitment;\n        require(commitment.length == 40);\n        bytes prevBindingPart = commitment.split(32)[0];\n\n        bytes20 currentOwnerPkh = hash160(currentOwnerPk);\n        require(prevBindingPart == sha256(currentNostrPubkey + currentOwnerPkh));\n\n        // Burn NFT on output 0 (and forbid minting/moving NFT to any secondary output if present)\n        require(tx.outputs[0].tokenCategory == 0x);\n        require(tx.outputs[0].value == 0);\n        bytes expectedOpReturn = 0x6a04424c5a5220 + prevBindingPart;\n        require(tx.outputs[0].lockingBytecode == expectedOpReturn);\n        if (tx.outputs.length > 1) {\n            require(tx.outputs[1].tokenCategory == 0x);\n        }\n        require(tx.outputs.length <= 2);\n    }\n}\n",
+  "fingerprint": "55955f2f313c625efbf4438d426a25f7d2eb36ccda738b8a8dd40fcf1eabe7c8",
+  "debug": {
+    "bytecode": "78009c63547a82012088557a82012088567a82011488c0009d567a5679ad00cf8201289d01207f577aa97b557a7b7ea888818b7b7b7ea87c58807e00ce0087916900cd00c78800d100ce8800d28800cc02e803a277776778519c63547a82012088557a82011488c0009d5479a9537a88547a547aad00cf8201289d01207f77818b7b7b7ea87c58807e00ce0087916900cd00c78800d100ce8800d28800cc02e803a277677c529d537a82012088c0009d537a5379ad00cf8201289d01207f75537aa978537a7b7ea88800d1008800cc009d076a04424c5a52207c7e00cd88c451a06351d1008868c452a1776868",
+    "sourceMap": "24:4:50:5;;;;27:8:27:34;;;;;28::28:31;;;;;29::29:28;;;;;31:16:31:37;:41::42;:8::44:1;32:25:32:40:0;;:42::56;;:8::59:1;34:37:34:38:0;:27::53:1;35:16:35:33;:37::39:0;:8::41:1;36:68:36:70:0;:51::71:1;38:42:38:56:0;;:34::57:1;39:16:39:31:0;:42::60;;:63::78;:42:::1;:35::79;:8::81;41:22:41:38;:::42;42:41:42:56:0;:59::71;:41:::1;:34::72;43:63:43:70:0;:72::73;:49::74:1;:31;45:26:45:27:0;:16::42:1;:46::48:0;:16:::1;;:8::50;46:27:46:28:0;:16::45:1;:59::60:0;:49::77:1;:8::79;47:27:47:28:0;:16::43:1;:57::58:0;:47::73:1;:8::75;48:27:48:28:0;:16::43:1;:8::63;49:27:49:28:0;:16::35:1;:39::43:0;:8::45:1;30:6:50:5;;24:4;53::76::0;;;;56:8:56:36;;;;;57::57:33;;;;;59:16:59:37;:41::42;:8::44:1;60:24:60:34:0;;:16::35:1;:39::50:0;;:8::52:1;61:25:61:36:0;;:38::48;;:8::51:1;63:37:63:38:0;:27::53:1;64:16:64:33;:37::39:0;:8::41:1;65:45:65:47:0;:28::48:1;:::51;67:22:67:38;:::42;68:46:68:66:0;:69::86;:46:::1;:39::87;69:68:69:75:0;:77::78;:54::79:1;:31;71:26:71:27:0;:16::42:1;:46::48:0;:16:::1;;:8::50;72:27:72:28:0;:16::45:1;:59::60:0;:49::77:1;:8::79;73:27:73:28:0;:16::43:1;:57::58:0;:47::73:1;:8::75;74:27:74:28:0;:16::43:1;:8::63;75:27:75:28:0;:16::35:1;:39::43:0;:8::45:1;58:6:76:5;53:4;79::103::0;;;82:8:82:34;;;;;84:16:84:37;:41::42;:8::44:1;85:25:85:40:0;;:42::56;;:8::59:1;87:37:87:38:0;:27::53:1;88:16:88:33;:37::39:0;:8::41:1;89:49:89:51:0;:32::52:1;:::55;91:42:91:56:0;;:34::57:1;92:16:92:31:0;:42::60;;:63::78;:42:::1;:35::79;:8::81;95:27:95:28:0;:16::43:1;:47::49:0;:8::51:1;96:27:96:28:0;:16::35:1;:39::40:0;:8::42:1;97:33:97:49:0;:52::67;:33:::1;98:27:98:28:0;:16::45:1;:8::67;99:12:99:29:0;:32::33;:12:::1;:35:101:9:0;100:31:100:32;:20::47:1;:51::53:0;:12::55:1;99:35:101:9;102:16:102:33:0;:37::38;:8::40:1;83:6:103:5;22:0:104:1;",
+    "logs": [],
+    "requires": [
+      { "ip": 22, "line": 31 },
+      { "ip": 27, "line": 32 },
+      { "ip": 32, "line": 35 },
+      { "ip": 44, "line": 39 },
+      { "ip": 60, "line": 45 },
+      { "ip": 65, "line": 46 },
+      { "ip": 70, "line": 47 },
+      { "ip": 73, "line": 48 },
+      { "ip": 78, "line": 49 },
+      { "ip": 97, "line": 59 },
+      { "ip": 103, "line": 60 },
+      { "ip": 108, "line": 61 },
+      { "ip": 113, "line": 64 },
+      { "ip": 132, "line": 71 },
+      { "ip": 137, "line": 72 },
+      { "ip": 142, "line": 73 },
+      { "ip": 145, "line": 74 },
+      { "ip": 150, "line": 75 },
+      { "ip": 162, "line": 84 },
+      { "ip": 167, "line": 85 },
+      { "ip": 172, "line": 88 },
+      { "ip": 185, "line": 92 },
+      { "ip": 189, "line": 95 },
+      { "ip": 193, "line": 96 },
+      { "ip": 199, "line": 98 },
+      { "ip": 207, "line": 100 },
+      { "ip": 212, "line": 102 }
+    ],
+    "sourceTags": "4:8:pv;9:13:pv;14:18:pv;77:78:sc;84:88:pv;89:93:pv;149:149:sc;154:158:pv;211:211:sc"
+  },
+  "compiler": {
+    "name": "cashc",
+    "version": "0.14.0",
+    "options": {
+      "enforceFunctionParameterTypes": true,
+      "enforceLocktimeGuard": true
+    }
+  },
+  "updatedAt": "2026-11-20T08:45:04.323Z"
+}
