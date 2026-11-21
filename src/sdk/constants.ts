@@ -85,7 +85,7 @@ export const GITHUB_REPO_URL = PROJECT_METADATA.repoUrl;
  * Canonical CashTokens-capable `bitcoincash:z...` address for EMBER2026 Community Choice voting & PUSD rewards (@LBCron)
  */
 export const EMBER2026_VOTING_TOKEN_ADDRESS =
-  'bitcoincash:zqxr9rfdc546qz70hg7gutu2u8dznl847q4jf9zs75';
+  'bitcoincash:zrmzsnappljxj2p7lukt7vaukjg08xysusdswzruk0';
 
 export const DUST_SATOSHIS = 1000n;
 export const TOKEN_DUST_SATOSHIS = 1000n;
